@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orb Maze</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="container" aria-label="Laberinto en tres dimensiones"></div>
+  <header id="game-header" hidden>
+    <button id="open-menu" type="button">Menú</button>
+    <div class="level-panel"><span id="level-label">Nivel 1 / 5</span><div id="level-steps" class="steps" aria-hidden="true"></div><button id="restart" type="button">↻ <span>Reiniciar</span><kbd>R</kbd></button></div>
+  </header>
+  <footer id="game-footer" hidden>
+    <div class="controls"><div class="key-grid" aria-hidden="true"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><div><strong>Inclina la plataforma</strong><p>WASD o flechas · Suelta las teclas para nivelarla</p></div></div>
+    <div class="tilt-panel"><div class="tilt-disc"><span id="tilt-dot"></span></div><div><span class="eyebrow">INCLINACIÓN</span><p id="tilt-value">0° / 0°</p></div></div>
+  </footer>
+  <div id="touch-controls" class="touch-controls" aria-label="Controles de inclinación" hidden><button data-key="KeyW" aria-label="Inclinar hacia delante">↑</button><button data-key="KeyA" aria-label="Inclinar a la izquierda">←</button><button data-key="KeyS" aria-label="Inclinar hacia atrás">↓</button><button data-key="KeyD" aria-label="Inclinar a la derecha">→</button></div>
+  <div id="menu" class="overlay"><section class="menu-card" aria-labelledby="menu-title">
+    <div id="menu-main"><h1 id="menu-title">Orb Maze</h1><p>Inclina la isla y guía la esfera hasta la meta verde.</p><div class="menu-actions"><button id="play" class="primary" type="button">Jugar →</button><button id="choose-level" type="button">Elegir nivel</button></div><p class="menu-help">WASD o flechas para inclinar · R para reiniciar</p></div>
+    <div id="level-picker" hidden><h2>Elige un nivel</h2><div id="level-buttons"></div><button id="back-menu" type="button">← Volver</button></div>
+  </section></div>
+  <div id="message" class="overlay" hidden><section role="dialog" aria-modal="true" aria-labelledby="message-title"><span class="success-mark" aria-hidden="true">✓</span><span class="eyebrow">ORB MAZE</span><h2 id="message-title">¡Nivel completado!</h2><p id="message-text"></p><button id="next-level" class="primary" type="button">Siguiente nivel →</button><button id="finish-menu" class="secondary" type="button">Volver al menú</button></section></div>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <script src="lib/three.min_r140.js"></script>
+  <script src="lib/cannon_062.js"></script>
+  <script src="js/levels.js"></script>
+  <script src="js/orb-maze.js"></script>
+</body>
+</html>
