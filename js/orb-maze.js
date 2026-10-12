@@ -1,5 +1,8 @@
 var renderer, scene, camera, platform, maze, ball, finish; // three vars
 var clock = new THREE.Clock();
+var cameraView = 0; // 0: angled view, 1: overhead view
+var cameraTarget = new THREE.Vector3();
+var grassTexture;
 var walls = [];
 var levelIndex = 0;
 var start = { x: 0, z: 0 };
@@ -25,6 +28,7 @@ var finishCenterMaterial = new THREE.MeshBasicMaterial({ color: 0x64c862 });
 
 try {
   init();
+  loadTextures();
   createWorld();
   loadScene();
   createMenu();
@@ -73,6 +77,10 @@ function init()
       keys[event.code] = true;
     }
     if (state !== 'menu' && event.code === 'KeyR' && !event.repeat) restartLevel();
+    if (event.code === 'KeyC' && !event.repeat) {
+      event.preventDefault();
+      toggleCamera();
+    }
   });
   window.addEventListener('keyup', function(event) { keys[event.code] = false; });
   window.addEventListener('blur', clearKeys);
@@ -82,6 +90,7 @@ function init()
     clock.getDelta();
   });
   document.getElementById('restart').addEventListener('click', restartLevel);
+  document.getElementById('camera-toggle').addEventListener('click', toggleCamera);
   document.getElementById('next-level').addEventListener('click', function() {
     levelIndex = (levelIndex + 1) % levels.length;
     loadLevel();
@@ -102,6 +111,25 @@ function init()
 }
 
 function clearKeys() { keys = {}; }
+
+function loadTextures()
+{
+  var loader = new THREE.TextureLoader();
+  grassTexture = loader.load('images/textures/grass_soft.webp');
+  grassTexture.encoding = THREE.sRGBEncoding;
+  grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
+  grassTexture.repeat.set(1, 1);
+  // Rotate the pattern around the texture center.
+  grassTexture.center.set(0.5, 0.5);
+  grassTexture.rotation = Math.PI / 2;
+
+  var wallTexture = loader.load('images/textures/wall_plaster_light.webp');
+  wallTexture.encoding = THREE.sRGBEncoding;
+  wallTexture.wrapS = wallTexture.wrapT = THREE.RepeatWrapping;
+  wallMaterial.map = wallTexture;
+  wallMaterial.color.set(0xffffff);
+  wallMaterial.needsUpdate = true;
+}
 
 function createMenu()
 {
@@ -226,7 +254,7 @@ function addMesh(parent, geometry, material, x, y, z)
 function createPlatform()
 {
   var rock = new THREE.MeshPhongMaterial({ color: 0x455665, flatShading: true, shininess: 0 });
-  var grass = new THREE.MeshLambertMaterial({ color: 0x8da959 });
+  var grass = new THREE.MeshLambertMaterial({ color: 0xffffff, map: grassTexture });
   var rim = new THREE.MeshLambertMaterial({ color: 0xc5c1a4 });
   addMesh(platform, new THREE.CylinderGeometry(8.4, 8.0, 0.9, 48), rock, 0, -0.57, 0); // -0.57 + 0.9 / 2 = -0.12
   addMesh(platform, new THREE.CylinderGeometry(7.5, 2.2, 2.9, 9), rock, 0, -2.15, 0); 
@@ -299,7 +327,8 @@ function createMaze()
       while (col + 1 < map[row].length && map[row][col + 1] === '#') col++;
       var width = (col - firstCol + 1) * cellSize;
       x = ((firstCol + col) / 2 - middle) * cellSize;
-      addMesh(maze, new THREE.BoxGeometry(width, 0.65, cellSize), wallMaterial, x, 0.325, z);
+      var wallMesh = addMesh(maze, new THREE.BoxGeometry(width, 0.65, cellSize), wallMaterial, x, 0.325, z);
+      setWallTextureCoordinates(wallMesh.geometry, x, z);
       walls.push({ x: x, z: z, width: width, depth: cellSize });
     }
   }
@@ -318,6 +347,23 @@ function createMaze()
     finishCenterMaterial, goal.x, 0.016, goal.z);
   center.rotation.x = -Math.PI / 2;
   center.castShadow = false;
+}
+
+// Use two-unit UV tiles so long walls do not stretch the texture.
+function setWallTextureCoordinates(geometry, x, z)
+{
+  var positions = geometry.attributes.position;
+  var normals = geometry.attributes.normal;
+  var uv = geometry.attributes.uv;
+  for (var i = 0; i < positions.count; i++) {
+    var px = positions.getX(i) + x;
+    var py = positions.getY(i) + 0.325;
+    var pz = positions.getZ(i) + z;
+    if (Math.abs(normals.getY(i)) > 0.5) uv.setXY(i, px / 2, pz / 2);
+    else if (Math.abs(normals.getX(i)) > 0.5) uv.setXY(i, pz / 2, py / 2);
+    else uv.setXY(i, px / 2, py / 2);
+  }
+  uv.needsUpdate = true;
 }
 
 function loadLevel()
@@ -363,11 +409,38 @@ function updateAspectRatio()
   var aspect = window.innerWidth / window.innerHeight;
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = aspect;
-  // Move the fixed camera farther away on narrow screens to keep the island in view.
-  var distance = Math.max(28, 27 / aspect);
-  camera.position.set(0, distance * 0.72 - 0.6, distance * 0.7);
+  setCameraTarget();
+  camera.position.copy(cameraTarget);
   camera.lookAt(0, -0.6, 0);
   camera.updateProjectionMatrix();
+}
+
+function setCameraTarget()
+{
+  // Keep the whole island visible in both views, including narrow screens.
+  var distance = Math.max(28, 27 / camera.aspect);
+  // Keep the island clear of distance fog on portrait screens.
+  scene.fog.near = distance + 17;
+  scene.fog.far = distance + 57;
+  camera.far = Math.max(120, distance + 60);
+  var height = cameraView === 0 ? 0.72 : 0.96;
+  var depth = cameraView === 0 ? 0.7 : 0.28;
+  cameraTarget.set(0, distance * height - 0.6, distance * depth);
+}
+
+function toggleCamera()
+{
+  cameraView = 1 - cameraView;
+  setCameraTarget();
+  document.getElementById('camera-view-label').textContent = cameraView === 0 ? 'Vista inclinada' : 'Vista superior';
+  document.getElementById('camera-toggle').setAttribute('aria-pressed', cameraView === 1 ? 'true' : 'false');
+}
+
+function updateCamera(dt)
+{
+  // Animate independently of physics so the view also changes while paused.
+  camera.position.lerp(cameraTarget, 1 - Math.exp(-5 * dt));
+  camera.lookAt(0, -0.6, 0);
 }
 
 function update(dt)
@@ -486,6 +559,7 @@ function render()
   // Cannon solves contacts in small fixed steps of 1/120 second.
   // The accumulator keeps the step count consistent across different frame rates.
   var dt = Math.min(clock.getDelta(), 0.1);
+  updateCamera(dt);
   accumulator += dt;
   while (accumulator >= fixedStep) {
     accumulator -= fixedStep;
