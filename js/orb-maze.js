@@ -3,6 +3,14 @@ var clock = new THREE.Clock();
 var cameraView = 0; // 0: angled view, 1: overhead view
 var cameraTarget = new THREE.Vector3();
 var grassTexture;
+var environmentMap;
+var platformTrees = [
+  { x: -6.6, z: -3.3, size: 0.9 },
+  { x: 6.6, z: -3.3, size: 0.7 },
+  { x: -3.2, z: -6.9, size: 0.7 },
+  { x: -6.9, z: 2.2, size: 0.75 },
+  { x: 6.8, z: 2.9, size: 0.65 }
+];
 var walls = [];
 var levelIndex = 0;
 var start = { x: 0, z: 0 };
@@ -21,10 +29,19 @@ var accumulator = 0;
 var fixedStep = 1 / 120;
 var fallTime = 0;
 var noticeTime = 0;
-var wallMaterial = new THREE.MeshLambertMaterial({ color: 0xc4c8bf });
-var startMaterial = new THREE.MeshBasicMaterial({ color: 0xccd5b2 }); // start point
-var finishMaterial = new THREE.MeshBasicMaterial({ color: 0xd4ff84 }); // finish point
-var finishCenterMaterial = new THREE.MeshBasicMaterial({ color: 0x64c862 });
+var wallMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+var startMaterial = new THREE.MeshPhongMaterial({
+  color: 0xccd5b2, specular: 0xffffff, shininess: 120,
+  combine: THREE.MixOperation, reflectivity: 0.45
+}); // start point
+var finishMaterial = new THREE.MeshPhongMaterial({
+  color: 0xd4ff84, specular: 0xffffff, shininess: 120,
+  combine: THREE.MixOperation, reflectivity: 0.45
+}); // finish point
+var finishCenterMaterial = new THREE.MeshPhongMaterial({
+  color: 0x64c862, specular: 0xffffff, shininess: 100,
+  combine: THREE.MixOperation, reflectivity: 0.3
+});
 
 try {
   init();
@@ -127,7 +144,6 @@ function loadTextures()
   wallTexture.encoding = THREE.sRGBEncoding;
   wallTexture.wrapS = wallTexture.wrapT = THREE.RepeatWrapping;
   wallMaterial.map = wallTexture;
-  wallMaterial.color.set(0xffffff);
   wallMaterial.needsUpdate = true;
 }
 
@@ -230,6 +246,11 @@ function createPlatformBody()
 
 function loadScene()
 {
+  // Share one reflection map between all reflective materials.
+  environmentMap = createBallEnvironment();
+  [startMaterial, finishMaterial, finishCenterMaterial].forEach(function(material) {
+    material.envMap = environmentMap;
+  });
   platform = new THREE.Object3D();
   scene.add(platform);
   createPlatform();
@@ -255,7 +276,22 @@ function createPlatform()
 {
   var rock = new THREE.MeshPhongMaterial({ color: 0x455665, flatShading: true, shininess: 0 });
   var grass = new THREE.MeshLambertMaterial({ color: 0xffffff, map: grassTexture });
-  var rim = new THREE.MeshLambertMaterial({ color: 0xc5c1a4 });
+  var rim = new THREE.MeshPhongMaterial({
+    color: 0xe3e7e9,
+    specular: 0xffffff,
+    shininess: 120,
+    envMap: environmentMap,
+    combine: THREE.MixOperation,
+    reflectivity: 0.5
+  });
+  var metal = new THREE.MeshPhongMaterial({
+    color: 0xb9c4cc,
+    specular: 0xffffff,
+    shininess: 120,
+    envMap: environmentMap,
+    combine: THREE.MixOperation,
+    reflectivity: 0.65
+  });
   addMesh(platform, new THREE.CylinderGeometry(8.4, 8.0, 0.9, 48), rock, 0, -0.57, 0); // -0.57 + 0.9 / 2 = -0.12
   addMesh(platform, new THREE.CylinderGeometry(7.5, 2.2, 2.9, 9), rock, 0, -2.15, 0); 
   addMesh(platform, new THREE.CylinderGeometry(platformRadius, platformRadius, 0.12, 48), grass, 0, -0.06, 0); 
@@ -268,13 +304,14 @@ function createPlatform()
     var wheel = new THREE.Object3D();
     wheel.position.set(side * 8.6, -0.6, 0);
     platform.add(wheel);
-    var ring = addMesh(wheel, new THREE.TorusGeometry(1.65, 0.24, 6, 20), rock, 0, 0, 0);
+    var ring = addMesh(wheel, new THREE.TorusGeometry(1.65, 0.24, 8, 32), metal, 0, 0, 0);
     ring.rotation.y = Math.PI / 2;
-    addMesh(wheel, new THREE.BoxGeometry(0.3, 3.15, 0.22), rock, 0, 0, 0);
-    addMesh(wheel, new THREE.BoxGeometry(0.3, 0.22, 3.15), rock, 0, 0, 0);
+    addMesh(wheel, new THREE.BoxGeometry(0.3, 3.15, 0.22), metal, 0, 0, 0);
+    addMesh(wheel, new THREE.BoxGeometry(0.3, 0.22, 3.15), metal, 0, 0, 0);
   });
-  createTree(platform, -6.6, -3.3, 0.9);
-  createTree(platform, 6.6, -3.3, 0.7);
+  platformTrees.forEach(function(tree) {
+    createTree(platform, tree.x, tree.z, tree.size);
+  });
 }
 
 function createTree(parent, x, z, size)
@@ -290,10 +327,67 @@ function createTree(parent, x, z, size)
   addMesh(tree, new THREE.ConeGeometry(0.4, 1.0, 5), leaves, 0, 1.55, 0);
 }
 
+function createBallEnvironment()
+{
+  var faces = [];
+  // Cube faces: right, left, top, bottom, front, back.
+  for (var i = 0; i < 6; i++) {
+    var canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    var context = canvas.getContext('2d');
+    if (i === 2 || i === 3) {
+      context.fillStyle = i === 2 ? '#79b6dc' : '#8da959';
+    } else {
+      var gradient = context.createLinearGradient(0, 0, 0, 128);
+      gradient.addColorStop(0, '#79b6dc');
+      gradient.addColorStop(0.4, '#b8e1ed');
+      gradient.addColorStop(0.55, '#f4f8ed');
+      gradient.addColorStop(0.65, '#c7d9a2');
+      gradient.addColorStop(1, '#8da959');
+      context.fillStyle = gradient;
+    }
+    context.fillRect(0, 0, 128, 128);
+    faces.push(canvas);
+  }
+  var environment = new THREE.CubeTexture(faces);
+  environment.encoding = THREE.sRGBEncoding;
+  environment.needsUpdate = true;
+  return environment;
+}
+
+function createBallTexture()
+{
+  var canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  var context = canvas.getContext('2d');
+  context.fillStyle = '#e1e6eb';
+  context.fillRect(0, 0, 256, 128);
+  // A thin painted band makes the sphere rotation visible.
+  context.fillStyle = '#64717e';
+  context.fillRect(0, 61, 256, 6);
+  var texture = new THREE.CanvasTexture(canvas);
+  texture.encoding = THREE.sRGBEncoding;
+  return texture;
+}
+
 function createBall()
 {
-  ball = addMesh(scene, new THREE.SphereGeometry(ballRadius, 20, 12),
-    new THREE.MeshPhongMaterial({ color: 0xfff8e6, specular: 0xffffff, shininess: 70 }), 0, ballRadius, 0);
+  var texture = createBallTexture();
+  var material = new THREE.MeshPhongMaterial({
+    color: 0xffffff,
+    map: texture,
+    emissive: 0xdce5ef,
+    emissiveMap: texture,
+    emissiveIntensity: 0.12,
+    envMap: environmentMap,
+    combine: THREE.MixOperation,
+    reflectivity: 0.25,
+    specular: 0xffffff,
+    shininess: 120
+  });
+  ball = addMesh(scene, new THREE.SphereGeometry(ballRadius, 32, 20),
+    material, 0, ballRadius, 0);
   ballBody = new CANNON.Body({ mass: 1, material: sphereMaterial });
   var sphereShape = new CANNON.Sphere(ballRadius);
   sphereShape.material = sphereMaterial;
@@ -333,8 +427,10 @@ function createMaze()
     }
   }
   // Collision shapes for decorative tree trunks outside the maze.
-  walls.push({ x: -6.6, z: -3.3, width: 0.24, depth: 0.24 });
-  walls.push({ x: 6.6, z: -3.3, width: 0.2, depth: 0.2 });
+  platformTrees.forEach(function(tree) {
+    var width = 0.26 * tree.size;
+    walls.push({ x: tree.x, z: tree.z, width: width, depth: width });
+  });
   var marker = addMesh(maze, new THREE.CircleGeometry(0.42, 24),
     startMaterial, start.x, 0.012, start.z);
   marker.rotation.x = -Math.PI / 2;
